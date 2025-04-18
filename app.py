@@ -1,117 +1,133 @@
-import dash
-import dash_core_components as dcc
-import dash_html_components as html
-from dash.dependencies import Input, Output
+from typing import Literal
 
+import pandas as pd
+import panel as pn
 import plotly.express as px
 import pandas as pd
-from yahoo_fin import options, stock_info
-
-external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
-
-all_tickers = pd.read_csv('all_tickers.csv')
-
-app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
-
-colors = {
-    'background': '#111111',
-    'text': '#7FDBFF'
-}
+import yfinance as yf
 
 
-def get_ticker_options(ticker_table):
-    tickers = []
-    for pos, symbol in ticker_table.iterrows():
-        tickers.append({'label': f'{ticker_table["Symbol"][pos]} - {ticker_table["Name"][pos]}', 
-                        'value': ticker_table["Symbol"][pos]})
-    return tickers
+import numpy as np
+
+external_stylesheets = ["https://codepen.io/chriddyp/pen/bWLwgP.css"]
 
 
-app.layout = html.Div(style={'backgroundColor': colors['background'], 
-                            'color': colors['text']},
-                      children=[
-    html.H1('Options Dashboard', style={'textAlign': 'center'}),
-                      
-    html.Label('Stock Ticker'),
-    dcc.Dropdown(
-        id='ticker',
-        options=get_ticker_options(all_tickers),
-        value='NOK'),
-                          
-    html.Label('Option Expiry Date'),
-    dcc.Dropdown(id='dates', multi=True),
+STOCKER_TICKERS_CSV = "all_tickers.csv"
 
-    html.Div([
-        dcc.Graph(id='options-price-graph', style={'display': 'inline-block', 'flex': '50%'}),
-        dcc.Graph(id='stock-price-graph', style={'display': 'inline-block', 'flex': '50%'})
-    ])
-                          
-])
-    
+# Downloaded from https://github.com/paulperry/quant/blob/master/ETFs.csv
+# Modified QQQ from QQQQ
+ETF_TICKER_CSV = "ETFs.csv"
 
-@app.callback(
-    Output('options-price-graph', 'figure'),
-    Input('ticker', 'value'),
-    Input('dates', 'value')
+
+# TODO: This list of tickers needs updating!
+def get_ticker_names(path: str) -> pd.DataFrame:
+    return pd.read_csv(path)
+
+
+STOCK_TICKERS_DF = get_ticker_names(STOCKER_TICKERS_CSV)
+ETF_TICKERS_DF = get_ticker_names(ETF_TICKER_CSV)
+
+ALL_TICKERS = STOCK_TICKERS_DF.merge(
+    ETF_TICKERS_DF, on=["Symbol", "Name", "Sector"], how="outer"
 )
-def update_option_plot(ticker: str, dates: list):
-    ticker = ticker.upper()
-    price = stock_info.get_live_price(ticker)
-    if dates:
-        dfs = []
-        for d in dates:
-            df = options.get_calls(ticker, d)
-            df['Expiry Date'] = d
-            dfs.append(df)
-        df = pd.concat(dfs)
-    else:
-        df = options.get_calls(ticker)
-        df['Expiry Date'] = 'This Friday'
 
-    fig = px.scatter(df, 
-                     x="Strike",
-                     y="Last Price",
-                     title=ticker,
-                     size='Open Interest',
-                     color='Expiry Date',
-                     hover_data=['Open Interest', 'Implied Volatility']).update_traces(mode='lines+markers', marker_line_width=2)
-    
-    fig.add_vline(price, line_dash='dash', line_color='green', annotation_text=f'Current Stock Price: ${round(price, 2)}')
-    fig.update_layout(
-        plot_bgcolor=colors['background'],
-        paper_bgcolor=colors['background'],
-        font_color=colors['text'])
+
+def get_option_expiry_dates(ticker_name: str) -> tuple[str]:
+    return yf.Ticker(ticker_name).options
+
+
+def plot_options(
+    ticker_name: str,
+    expiry_date: str,
+    options_type: Literal["calls", "puts"],
+    number_of_strikes: int = 20,
+):
+    ticker = yf.Ticker(ticker_name)
+
+    current_stock_price = ticker.info["regularMarketPrice"]
+
+    df = getattr(ticker.option_chain(expiry_date), options_type)
+
+    closest_strike_to_current_price = min(
+        df["strike"], key=lambda strike: abs(strike - current_stock_price)
+    )
+
+    middle_index = df[df["strike"] == closest_strike_to_current_price].index
+    df = df.iloc[
+        int(middle_index.values[0])
+        - int(number_of_strikes) // 2 : int(middle_index.values[0])
+        + int(number_of_strikes) // 2
+    ]
+
+    fig = px.scatter(
+        df,
+        x="strike",
+        y="ask",
+        title=f"{options_type.title()[:-1]} Options for {ticker_name}",
+    )
+    # fig.update_layout(xaxis_range=[left_bound_strike, right_bound_strike])
+    fig.add_vline(x=current_stock_price, line_color="green")
+
     return fig
 
+    # fig = px.scatter(
+    #     df,
+    #     x="strike",
+    #     y="Bid",
+    #     title=ticker,
+    #     color="Expiry Date",
+    #     hover_data=["Open Interest", "Implied Volatility", "Ask"],
+    # ).update_traces(mode="lines+markers", marker_line_width=2, marker_size=8)
 
-@app.callback(
-    Output(component_id='dates', component_property='options'),
-    Input(component_id='ticker', component_property='value')
+    # fig.add_vline(
+    #     price,
+    #     line_dash="dash",
+    #     line_color="green",
+    #     annotation_text=f"Current Stock Price: ${round(price, 2)}",
+    # )
+    # fig.update_layout(
+    #     plot_bgcolor=colors["background"],
+    #     paper_bgcolor=colors["background"],
+    #     font_color=colors["text"],
+    # )
+    # return fig
+
+
+ticker_name_dropdown = pn.widgets.Select(
+    name="Ticker", value="QQQ", options=list(ALL_TICKERS["Symbol"])
 )
-def populate_dates(ticker):
-    all_dates = options.get_expiration_dates(ticker)
-    dates = []
-    for date in all_dates:
-        dates.append({'label': date, 'value': date})
-    return dates
 
-
-@app.callback(
-    Output('stock-price-graph', 'figure'),
-    Input('ticker', 'value')
+expiry_dates_widget = pn.widgets.Select(
+    name="Expiry Date",
+    options=list(get_option_expiry_dates(ticker_name_dropdown.value)),
 )
-def update_stock_plot(ticker: str):
-    now = pd.Timestamp.today()
-    df = stock_info.get_data(ticker, start_date=now - pd.DateOffset(days=1), end_date=now + pd.DateOffset(1), interval='1m', index_as_date=False).dropna()
-    df['date'] = df['date'].apply(lambda x: x - pd.DateOffset(hours=8))
-    fig = px.scatter(df, x='date', y='close', size='volume', trendline='lowess', title="Today's Stock Price")
-    fig.update_layout(
-        xaxis_title='Date', yaxis_title='Price',
-        plot_bgcolor=colors['background'],
-        paper_bgcolor=colors['background'],
-        font_color=colors['text'])
-    return fig
 
 
-if __name__ == '__main__':
-    app.run_server(debug=True)
+options_type_dropdown = pn.widgets.Select(
+    name="Option Type", value="puts", options=["calls", "puts"]
+)
+
+number_of_strikes_dropdown = pn.widgets.Select(
+    name="Number of Strikes to Show", value=20, options=list(range(10, 100, 10))
+)
+
+bound_plot = pn.bind(
+    plot_options,
+    ticker_name=ticker_name_dropdown,
+    expiry_date=expiry_dates_widget,
+    options_type=options_type_dropdown,
+    number_of_strikes=number_of_strikes_dropdown,
+)
+
+
+pn.template.MaterialTemplate(
+    site="Options Dashboard",
+    title="Single Expiry View",
+    sidebar=[
+        ticker_name_dropdown,
+        expiry_dates_widget,
+        options_type_dropdown,
+        number_of_strikes_dropdown,
+    ],
+    main=[bound_plot],
+).servable()
