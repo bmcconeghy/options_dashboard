@@ -32,21 +32,21 @@ ALL_TICKERS = STOCK_TICKERS_DF.merge(
 )
 
 
-def get_option_expiry_dates(ticker_name: str) -> tuple[str]:
-    return yf.Ticker(ticker_name).options
+def get_option_expiry_dates(ticker_name: str) -> list[str]:
+    return list(yf.Ticker(ticker_name).options)
 
 
 def plot_options(
     ticker_name: str,
     expiry_date: str,
     options_type: Literal["calls", "puts"],
-    number_of_strikes: int = 20,
+    number_of_strikes: int,
 ):
     ticker = yf.Ticker(ticker_name)
 
     current_stock_price = ticker.info["regularMarketPrice"]
 
-    df = getattr(ticker.option_chain(expiry_date), options_type)
+    df: pd.DataFrame = getattr(ticker.option_chain(expiry_date), options_type)
 
     closest_strike_to_current_price = min(
         df["strike"], key=lambda strike: abs(strike - current_stock_price)
@@ -99,9 +99,11 @@ ticker_name_dropdown = pn.widgets.Select(
 
 expiry_dates_widget = pn.widgets.Select(
     name="Expiry Date",
-    options=list(get_option_expiry_dates(ticker_name_dropdown.value)),
+    # size=5,
 )
 
+expiry_dates_widget.options = pn.bind(get_option_expiry_dates, ticker_name_dropdown)
+expiry_dates_widget.value = expiry_dates_widget.options[0]
 
 options_type_dropdown = pn.widgets.Select(
     name="Option Type", value="puts", options=["calls", "puts"]
