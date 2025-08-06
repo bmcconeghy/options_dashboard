@@ -1,3 +1,5 @@
+from datetime import datetime
+from functools import partial
 from typing import Literal
 
 import pandas as pd
@@ -59,6 +61,7 @@ def plot_options(
         + int(number_of_strikes) // 2
     ]
 
+    # Think about pivoting the data so we can visualize bid ask spreads and volume all in one chart!
     fig = px.scatter(
         df,
         x="strike",
@@ -66,35 +69,73 @@ def plot_options(
         title=f"{options_type.title()[:-1]} Options for {ticker_name}",
     )
     # fig.update_layout(xaxis_range=[left_bound_strike, right_bound_strike])
-    fig.add_vline(x=current_stock_price, line_color="green")
+    fig.add_vline(
+        x=current_stock_price, line_color="green", annotation_text=current_stock_price
+    )
 
     return fig
 
-    # fig = px.scatter(
-    #     df,
-    #     x="strike",
-    #     y="Bid",
-    #     title=ticker,
-    #     color="Expiry Date",
-    #     hover_data=["Open Interest", "Implied Volatility", "Ask"],
-    # ).update_traces(mode="lines+markers", marker_line_width=2, marker_size=8)
 
-    # fig.add_vline(
-    #     price,
-    #     line_dash="dash",
-    #     line_color="green",
-    #     annotation_text=f"Current Stock Price: ${round(price, 2)}",
-    # )
-    # fig.update_layout(
-    #     plot_bgcolor=colors["background"],
-    #     paper_bgcolor=colors["background"],
-    #     font_color=colors["text"],
-    # )
-    # return fig
+def plot_options_same_strike_across_expiries(
+    ticker_name: str,
+    strike_prices: list[str],
+    options_type: Literal["calls", "puts"],
+):
+    ticker = yf.Ticker(ticker_name)
+    ticker.option_chain()
+
+    all_dfs = []
+    expiries = list(ticker._expirations.keys())
+    for expiry in expiries:
+        # ONLY CALLS so far
+        all_dfs.append(getattr(ticker.option_chain(expiry), options_type))
+    all_dfs = pd.concat(all_dfs)
+
+    all_dfs["expiry_date"] = (
+        all_dfs["contractSymbol"]
+        .str.extract(f"{ticker_name}(\\d+)")
+        .apply(partial(pd.to_datetime, format="%y%m%d"))
+    )
+    sub_df = all_dfs[all_dfs["strike"].isin(strike_prices)]
+    sub_df["strike"] = sub_df["strike"].astype("category")
+
+    fig = px.scatter(
+        sub_df,
+        x="expiry_date",
+        y="ask",
+        color="strike",
+        title=f"{options_type.title()[:-1]} Options for {ticker_name}",
+        trendline="lowess",
+        trendline_scope="trace",
+    )
+    return fig
+
+
+def plot_stock(
+    ticker_name: str,
+):
+    df = yf.download(
+        ticker_name, start=str(datetime.today().strftime("%Y-%m-%d")), interval="1m"
+    ).reset_index()
+    df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
+    df.reset_index(inplace=True)
+
+    # Ensure the 'Datetime' column is in datetime format
+    df["Datetime"] = pd.to_datetime(df["Datetime"])
+    df = df.sort_values(by="Datetime")
+
+    fig = px.scatter(
+        df,
+        x="Datetime",
+        y="Close",
+        title=f"Stock Price for {ticker_name}",
+    )
+
+    return fig
 
 
 ticker_name_dropdown = pn.widgets.Select(
-    name="Ticker", value="QQQ", options=list(ALL_TICKERS["Symbol"])
+    name="Ticker", value="TQQQ", options=list(ALL_TICKERS["Symbol"])
 )
 
 expiry_dates_widget = pn.widgets.Select(
@@ -106,14 +147,14 @@ expiry_dates_widget.options = pn.bind(get_option_expiry_dates, ticker_name_dropd
 expiry_dates_widget.value = expiry_dates_widget.options[0]
 
 options_type_dropdown = pn.widgets.Select(
-    name="Option Type", value="puts", options=["calls", "puts"]
+    name="Option Type", value="calls", options=["calls", "puts"]
 )
 
 number_of_strikes_dropdown = pn.widgets.Select(
     name="Number of Strikes to Show", value=20, options=list(range(10, 100, 10))
 )
 
-bound_plot = pn.bind(
+bound_options_plot = pn.bind(
     plot_options,
     ticker_name=ticker_name_dropdown,
     expiry_date=expiry_dates_widget,
@@ -121,6 +162,17 @@ bound_plot = pn.bind(
     number_of_strikes=number_of_strikes_dropdown,
 )
 
+bound_options_by_expiry = pn.bind(
+    plot_options_same_strike_across_expiries,
+    ticker_name=ticker_name_dropdown,
+    strike_prices=[85, 90, 95],
+    options_type=options_type_dropdown,
+)
+
+bound_stock_plot = pn.bind(
+    plot_stock,
+    ticker_name=ticker_name_dropdown,
+)
 
 pn.template.MaterialTemplate(
     site="Options Dashboard",
@@ -131,5 +183,9 @@ pn.template.MaterialTemplate(
         options_type_dropdown,
         number_of_strikes_dropdown,
     ],
-    main=[bound_plot],
+    main=[
+        bound_stock_plot,
+        bound_options_plot,
+        bound_options_by_expiry,
+    ],
 ).servable()
