@@ -23,10 +23,7 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 
-# Body ------------------------------------
 COLOURS = {"background": "#000000", "text": "#7FDBFF"}
-
-
 ROOT_DIR = Path(os.environ.get("ROOT_DIR"))
 STOCK_DIR = ROOT_DIR / "kschnauz/stock_csvs"
 OPTION_DIR = ROOT_DIR / "kschnauz/options_csvs"
@@ -164,19 +161,19 @@ stock_watch = [
 ]
 
 stock = combined_stock_df[combined_stock_df["ticker"].isin(stock_watch)].sort_values(
-    by=["window_start", "ticker"], ascending=True
+    by=["window_start", "ticker"]
 )
 option = combined_option_df[combined_option_df["symbol"].isin(stock_watch)].sort_values(
-    by=["window_start", "ticker"], ascending=True
+    by=["window_start", "symbol"]
 )
 
 stock_and_option = pd.merge_asof(
-    left=stock,
-    right=option,
+    left=option,
+    right=stock,
     on=["window_start"],
-    left_by=["ticker"],
-    right_by=["symbol"],
-    suffixes=("_stock", "_option"),
+    left_by=["symbol"],
+    right_by=["ticker"],
+    suffixes=("_option", "_stock"),
     direction="nearest",
 )
 winners_and_losers = calculate_winners_and_losers(combined_stock_df, stock_watch)
@@ -208,7 +205,7 @@ app.layout = dbc.Container(
                     dcc.Dropdown(
                         id="stk_dropdown",
                         options=[
-                            {"label": i, "value": i} for i in stock["ticker"].unique()
+                            {"label": i, "value": i} for i in stock_and_option["ticker_stock"].unique()
                         ],
                         placeholder="Select Stock Ticker...",
                         value="NVDA",
@@ -220,7 +217,7 @@ app.layout = dbc.Container(
                         id="date_dropdown",
                         options=[
                             {"label": i, "value": i}
-                            for i in option["expiry_date"].unique()
+                            for i in stock_and_option["expiry_date"].unique()
                         ],
                         placeholder="Select Option Date...",
                     ),
@@ -313,16 +310,17 @@ def update_hist_graph(input_value):
     Input(component_id="date_dropdown", component_property="value"),
 )
 def update_option_graph(input_value1, input_value2):
-    stock_opt = stock_and_option[
-        (stock_and_option["ticker"] == f"{input_value1}")
-        & (stock_and_option["expiry_date"] == f"{input_value2}")
-    ]
+    print(f"{input_value1=}")
+    print(f"{input_value2=}")
+    stock_opt = stock_and_option.query(
+        "ticker_stock == @input_value1 & expiry_date == @input_value2"
+    )
     y_data = stock_opt["strike_price"].unique().tolist()
     x_data = stock_opt["window_start"].unique().tolist()
     z = pd.DataFrame()
     for strike_price in y_data:
         z[strike_price] = stock_opt[stock_opt["strike_price"] == strike_price][
-            "open_y"
+            "open_option"
         ].reset_index(drop=True)
     fig = go.Figure(data=[go.Surface(x=x_data, y=y_data, z=z.transpose())])
     return fig
