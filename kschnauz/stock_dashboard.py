@@ -87,7 +87,6 @@ combined_stock_df = pd.concat(
     [pd.read_csv(file) for file in STOCK_DIR.glob("*.csv.gz")],
     ignore_index=True,
 )
-combined_stock_df.sort_values(by=["ticker", "window_start"], ascending=[True, False])
 combined_stock_df["window_start"] = pd.to_datetime(combined_stock_df["window_start"])
 
 # Combine all option data
@@ -95,7 +94,6 @@ combined_option_df = pd.concat(
     [pd.read_csv(file) for file in OPTION_DIR.glob("*.csv.gz")],
     ignore_index=True,
 )
-combined_option_df.sort_values(by=["ticker", "window_start"], ascending=[True, False])
 combined_option_df["window_start"] = pd.to_datetime(combined_option_df["window_start"])
 
 # Polygon has shitty looking data sometimes in terms of ticker structure, so we need to clean it up
@@ -165,15 +163,21 @@ stock_watch = [
     # "AVAV",
 ]
 
-# We named the extracted symbol column to 'symbol' in the options data, so we need to filter based on that
-option = combined_option_df[combined_option_df["symbol"].isin(stock_watch)]
-stock = combined_stock_df[combined_stock_df["ticker"].isin(stock_watch)]
+stock = combined_stock_df[combined_stock_df["ticker"].isin(stock_watch)].sort_values(
+    by=["window_start", "ticker"], ascending=True
+)
+option = combined_option_df[combined_option_df["symbol"].isin(stock_watch)].sort_values(
+    by=["window_start", "ticker"], ascending=True
+)
 
-combined_stk_opt = pd.merge(
+stock_and_option = pd.merge_asof(
     left=stock,
     right=option,
-    how="right",
-    on=["ticker", "window_start"],
+    on=["window_start"],
+    left_by=["ticker"],
+    right_by=["symbol"],
+    suffixes=("_stock", "_option"),
+    direction="nearest",
 )
 winners_and_losers = calculate_winners_and_losers(combined_stock_df, stock_watch)
 winners = winners_and_losers[winners_and_losers["type"] == "Winner"]
@@ -309,27 +313,17 @@ def update_hist_graph(input_value):
     Input(component_id="date_dropdown", component_property="value"),
 )
 def update_option_graph(input_value1, input_value2):
-    stock_opt = combined_stk_opt[
-        (combined_stk_opt["ticker"] == f"{input_value1}")
-        & (combined_stk_opt["expiry_date"] == f"{input_value2}")
+    stock_opt = stock_and_option[
+        (stock_and_option["ticker"] == f"{input_value1}")
+        & (stock_and_option["expiry_date"] == f"{input_value2}")
     ]
     y_data = stock_opt["strike_price"].unique().tolist()
     x_data = stock_opt["window_start"].unique().tolist()
-    # opt_change = (stock_opt.loc[:, "open_y"] - stock_opt.loc[:, "close_y"]) / stock_opt.loc[:, "open_y"]
-    # stk_change = (stock_opt.loc[:, "open_x"] - stock_opt.loc[:, "close_x"]) / stock_opt.loc[:, "open_x"]
-    z = pd.DataFrame(index=range(len(x_data)), columns=y_data)
-    z[:] = 1
-    # print(z)
+    z = pd.DataFrame()
     for strike_price in y_data:
-        # print(stock_opt.query('strike_price == @value')['open_y'])
-        # z[value] = stock_opt.query('strike_price == @value')['open_y']
-        # print(z)
-        # print(stock_opt[stock_opt["strike_price"] == value]['open_y'])
         z[strike_price] = stock_opt[stock_opt["strike_price"] == strike_price][
             "open_y"
         ].reset_index(drop=True)
-    # sh_0, sh_1 = z.shape
-    # x, y = x_data.values, y_data.vaules
     fig = go.Figure(data=[go.Surface(x=x_data, y=y_data, z=z.transpose())])
     return fig
 
