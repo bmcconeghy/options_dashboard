@@ -43,15 +43,26 @@ combined_option_df["window_start"] = pd.to_datetime(combined_option_df["window_s
 combined_option_df = clean_and_parse_option_names(combined_option_df)
 
 # Go through the combined list of stocks to find the ones with the biggest weekly gains and losses.
-stock_watch = ["ALAB", "AVAV", "COIN", "CRCL", "LLY", "MDB", "NVDA", "PLTR", "TQQQ", "TSLA"]
+stock_watch = [
+    "ALAB",
+    "AVAV",
+    "COIN",
+    "CRCL",
+    "LLY",
+    "MDB",
+    "NVDA",
+    "PLTR",
+    "TQQQ",
+    "TSLA",
+]
 
 stock_and_option = pd.merge_asof(
     left=combined_option_df[combined_option_df["symbol"].isin(stock_watch)].sort_values(
-    by=["window_start", "symbol"]
-),
+        by=["window_start", "symbol"]
+    ),
     right=combined_stock_df[combined_stock_df["ticker"].isin(stock_watch)].sort_values(
-    by=["window_start", "ticker"]
-),
+        by=["window_start", "ticker"]
+    ),
     on=["window_start"],
     left_by=["symbol"],
     right_by=["ticker"],
@@ -87,7 +98,8 @@ app.layout = dbc.Container(
                     dcc.Dropdown(
                         id="stock_name_dropdown",
                         options=[
-                            {"label": i, "value": i} for i in stock_and_option["ticker_stock"].unique()
+                            {"label": i, "value": i}
+                            for i in stock_and_option["ticker_stock"].unique()
                         ],
                         placeholder="Select Stock Ticker...",
                         value="NVDA",
@@ -214,17 +226,21 @@ def update_option_graph(input_value1, input_value2, input_value3):
     strike_prices = list(stock_and_option_for_specific_stock["strike_price"].unique())
     change_in_premiums = pd.DataFrame()
     for strike_price in strike_prices:
-        change_in_premiums[strike_price] = stock_and_option_for_specific_stock[stock_and_option_for_specific_stock["strike_price"] == strike_price][
-            "open_option"
-        ].reset_index(drop=True)
-    fig = go.Figure(data=[go.Surface(x=timestamps, y=strike_prices, z=change_in_premiums.transpose())])
+        change_in_premiums[strike_price] = stock_and_option_for_specific_stock[
+            stock_and_option_for_specific_stock["strike_price"] == strike_price
+        ]["open_option"].reset_index(drop=True)
+    fig = go.Figure(
+        data=[
+            go.Surface(x=timestamps, y=strike_prices, z=change_in_premiums.transpose())
+        ]
+    )
     fig.update_layout(
-    scene=dict(
-        xaxis_title='Timestamp',
-        yaxis_title='Strike Price',
-        zaxis_title='Change in Option Premium',
-    ),
-    title='Change in Option Premium Over Time and Strike Price',
+        scene=dict(
+            xaxis_title="Timestamp",
+            yaxis_title="Strike Price",
+            zaxis_title="Change in Option Premium",
+        ),
+        title="Change in Option Premium Over Time and Strike Price",  # Haven't actually implemented the ratio yet
     )
     return fig
 
