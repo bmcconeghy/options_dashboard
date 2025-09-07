@@ -10,6 +10,7 @@ import plotly.graph_objects as go
 import structlog
 from dash import Input, Output, callback, dash_table, dcc, html
 from munge import calculate_winners_and_losers, clean_and_parse_option_names
+from scipy.interpolate import griddata
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.CYBORG])
 
@@ -226,33 +227,71 @@ def update_hist_graph(input_value):
     Input(component_id="stock_name_dropdown", component_property="value"),
     Input(component_id="expiry_date_dropdown", component_property="value"),
     Input(component_id="option_type_dropdown", component_property="value"),
+    prevent_initial_call=True,
 )
 def update_option_graph(input_value1, input_value2, input_value3):
     logger.debug(f"{input_value1=}")
     logger.debug(f"{input_value2=}")
     logger.debug(f"{input_value3=}")
+    # TODO: Is a scatter 3d plot better here?
+    # TODO: Smooth out NaNs?
+
     stock_and_option_for_specific_stock = stock_and_option.query(
         "ticker_stock == @input_value1 & expiry_date == @input_value2 & option_type == @input_value3"
     )
-    timestamps = list(stock_and_option_for_specific_stock["window_start"].unique())
-    strike_prices = list(stock_and_option_for_specific_stock["strike_price"].unique())
-    change_in_premiums = pd.DataFrame()
-    for strike_price in strike_prices:
-        change_in_premiums[strike_price] = stock_and_option_for_specific_stock[
-            stock_and_option_for_specific_stock["strike_price"] == strike_price
-        ]["open_option"].reset_index(drop=True)
+
+    stock_and_option_for_specific_stock = stock_and_option_for_specific_stock.copy()
+    stock_and_option_for_specific_stock["premium_to_stock_ratio"] = (
+        stock_and_option_for_specific_stock["open_option"]
+        / stock_and_option_for_specific_stock["open_stock"]
+    )
+
+    # Percent change by strike price
+    stock_and_option_for_specific_stock["percent_change"] = (
+        stock_and_option_for_specific_stock.groupby("strike_price")[
+            "premium_to_stock_ratio"
+        ].pct_change()
+        * 100
+    )
+    pivot = stock_and_option_for_specific_stock.pivot(
+        index="strike_price", columns="window_start", values="percent_change"
+    )
+    pivot = pivot.sort_index().sort_index(axis=1)
+
+    # NGL: Got AI to write this interpolation method
+    # Interpolate NaNs
+    pivot_interp = pivot.copy()
+    # Interpolate across time
+    pivot_interp = pivot_interp.interpolate(axis=1, method="linear")
+    # Interpolate across strike
+    pivot_interp = pivot_interp.interpolate(axis=0, method="linear")
+    # Edge fill
+    pivot_interp = pivot_interp.fillna(method="bfill", axis=1).fillna(
+        method="ffill", axis=1
+    )
+
     fig = go.Figure(
         data=[
-            go.Surface(x=timestamps, y=strike_prices, z=change_in_premiums.transpose())
+            go.Surface(
+                z=pivot_interp.values,  # interpolated % changes
+                x=[str(t.date()) for t in pivot_interp.columns],  # time as strings
+                y=pivot_interp.index.tolist(),  # strike prices
+                colorscale="Viridis",
+                colorbar=dict(title="% Δ Ratio"),
+                hovertemplate="Time: %{x}<br>Strike: %{y}<br>% Δ: %{z:.2f}<extra></extra>",
+            )
         ]
     )
+
     fig.update_layout(
+        title="% Change in Option Premium / Stock Price Ratio",
         scene=dict(
-            xaxis_title="Timestamp",
+            xaxis_title="Time",
             yaxis_title="Strike Price",
-            zaxis_title="Change in Option Premium",
+            zaxis_title="% Change in Ratio",
         ),
-        title="Change in Option Premium Over Time and Strike Price",  # Haven't actually implemented the ratio yet
+        autosize=True,
+        margin=dict(l=0, r=0, b=0, t=50),
     )
     return fig
 
