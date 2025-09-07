@@ -1,4 +1,3 @@
-import logging
 import os
 from pathlib import Path
 
@@ -8,17 +7,16 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from dash import callback, dcc, dash_table, html, Input, Output
-
-from polygon.munge import clean_and_parse_option_names, calculate_winners_and_losers
+import structlog
+from dash import Input, Output, callback, dash_table, dcc, html
+from munge import calculate_winners_and_losers, clean_and_parse_option_names
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.CYBORG])
 
 pd.options.plotting.backend = "plotly"
 pd.set_option("display.max_columns", None)
 
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
+logger = structlog.get_logger()
 
 
 COLOURS = {"background": "#000000", "text": "#7FDBFF"}
@@ -87,7 +85,7 @@ app.layout = dbc.Container(
             [
                 dbc.Col(
                     dcc.Dropdown(
-                        id="stk_dropdown",
+                        id="stock_name_dropdown",
                         options=[
                             {"label": i, "value": i} for i in stock_and_option["ticker_stock"].unique()
                         ],
@@ -98,12 +96,23 @@ app.layout = dbc.Container(
                 ),
                 dbc.Col(
                     dcc.Dropdown(
-                        id="date_dropdown",
+                        id="expiry_date_dropdown",
                         options=[
                             {"label": i, "value": i}
                             for i in stock_and_option["expiry_date"].unique()
                         ],
                         placeholder="Select Option Date...",
+                    ),
+                    width=3,
+                ),
+                dbc.Col(
+                    dcc.Dropdown(
+                        id="option_type_dropdown",
+                        options=[
+                            {"label": i, "value": i}
+                            for i in stock_and_option["option_type"].unique()
+                        ],
+                        placeholder="Select Option Type...",
                     ),
                     width=3,
                 ),
@@ -170,7 +179,7 @@ app.layout = dbc.Container(
     Output(
         component_id="my-output", component_property="children", allow_duplicate=True
     ),
-    Input(component_id="stk_dropdown", component_property="value"),
+    Input(component_id="stock_name_dropdown", component_property="value"),
     prevent_initial_call=True,
 )
 def update_output_div(input_value):
@@ -179,7 +188,7 @@ def update_output_div(input_value):
 
 @callback(
     Output(component_id="histogram_graph", component_property="figure"),
-    Input(component_id="stk_dropdown", component_property="value"),
+    Input(component_id="stock_name_dropdown", component_property="value"),
 )
 def update_hist_graph(input_value):
     stock = combined_stock_df[combined_stock_df["ticker"] == f"{input_value}"]
@@ -190,29 +199,39 @@ def update_hist_graph(input_value):
 
 @callback(
     Output(component_id="option_topography", component_property="figure"),
-    Input(component_id="stk_dropdown", component_property="value"),
-    Input(component_id="date_dropdown", component_property="value"),
+    Input(component_id="stock_name_dropdown", component_property="value"),
+    Input(component_id="expiry_date_dropdown", component_property="value"),
+    Input(component_id="option_type_dropdown", component_property="value"),
 )
-def update_option_graph(input_value1, input_value2):
-    print(f"{input_value1=}")
-    print(f"{input_value2=}")
-    stock_opt = stock_and_option.query(
-        "ticker_stock == @input_value1 & expiry_date == @input_value2"
+def update_option_graph(input_value1, input_value2, input_value3):
+    logger.debug(f"{input_value1=}")
+    logger.debug(f"{input_value2=}")
+    logger.debug(f"{input_value3=}")
+    stock_and_option_for_specific_stock = stock_and_option.query(
+        "ticker_stock == @input_value1 & expiry_date == @input_value2 & option_type == @input_value3"
     )
-    y_data = stock_opt["strike_price"].unique().tolist()
-    x_data = stock_opt["window_start"].unique().tolist()
-    z = pd.DataFrame()
-    for strike_price in y_data:
-        z[strike_price] = stock_opt[stock_opt["strike_price"] == strike_price][
+    timestamps = list(stock_and_option_for_specific_stock["window_start"].unique())
+    strike_prices = list(stock_and_option_for_specific_stock["strike_price"].unique())
+    change_in_premiums = pd.DataFrame()
+    for strike_price in strike_prices:
+        change_in_premiums[strike_price] = stock_and_option_for_specific_stock[stock_and_option_for_specific_stock["strike_price"] == strike_price][
             "open_option"
         ].reset_index(drop=True)
-    fig = go.Figure(data=[go.Surface(x=x_data, y=y_data, z=z.transpose())])
+    fig = go.Figure(data=[go.Surface(x=timestamps, y=strike_prices, z=change_in_premiums.transpose())])
+    fig.update_layout(
+    scene=dict(
+        xaxis_title='Timestamp',
+        yaxis_title='Strike Price',
+        zaxis_title='Change in Option Premium',
+    ),
+    title='Change in Option Premium Over Time and Strike Price',
+    )
     return fig
 
 
 @callback(
     Output(component_id="range_graph", component_property="figure"),
-    Input(component_id="stk_dropdown", component_property="value"),
+    Input(component_id="stock_name_dropdown", component_property="value"),
 )
 def update_range_graph(input_value):
     stock = combined_stock_df[combined_stock_df["ticker"] == f"{input_value}"]
