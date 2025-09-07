@@ -1,4 +1,6 @@
-import glob
+import logging
+import os
+import re
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -6,80 +8,104 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import plotly.io as pio
 from dash import Dash, Input, Output, callback, dash_table, dcc, html
 
 
 pd.options.plotting.backend = "plotly"
-pio.renderers.default = "browser"
 pd.set_option("display.max_columns", None)
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
+
 
 app = Dash()
 
 # Body ------------------------------------
-colors = {"background": "#000000", "text": "#7FDBFF"}
+COLOURS = {"background": "#000000", "text": "#7FDBFF"}
 
 
-ROOT_DIR = "./CSV_FILES/MINUTE/"
-OPTION_DIR = "./CSV_FILES/MINUTE/OPTION/"
+ROOT_DIR = Path(os.environ.get("ROOT_DIR"))
+STOCK_DIR = ROOT_DIR / "kschnauz/stock_csvs"
+OPTION_DIR = ROOT_DIR / "kschnauz/options_csvs"
+TICKERS = pd.read_csv(f"{ROOT_DIR}/all_tickers.csv")
 
-all_csv_files = glob.glob(str(ROOT_DIR) + "*.csv.gz")
-all_opt_csv_files = glob.glob(str(OPTION_DIR) + "*.csv.gz")
-tickers = pd.read_csv(f"{ROOT_DIR}/all_tickers.csv")
+# "Loose" because Polygon data is sometimes malformed
+OCC_OPTION_NAME_PATTERN_LOOSE = re.compile(r"^O:([A-Z]+)(\d{6,7})([CP])(\d{6,9})$")
 
-# Create an empty list to store individual DataFrames
-list_of_dfs = []
-list_of_opt_dfs = []
 
-# Loop through each CSV file and read it into a DataFrame
-for file in all_csv_files:
-    df = pd.read_csv(file)
-    list_of_dfs.append(df)
+def clean_option_names(df: pd.DataFrame, column_name: str = "ticker") -> pd.DataFrame:
+    """Clean and parse Options Clearing Corporation (OCC) style option names.
 
-for file in all_opt_csv_files:
-    df = pd.read_csv(file)
-    list_of_opt_dfs.append(df)
+    Args:
+        df: Input DataFrame containing `column_name`.
+        column: Name of the column containing option symbols.
 
-print(list_of_dfs)
-# Concatenate all DataFrames in the list into a single DataFrame
-combined_df = pd.concat(list_of_dfs, ignore_index=True)
-combined_df.sort_values(by=["ticker", "window_start"], ascending=[True, False])
-combined_df["window_start"] = pd.to_datetime(combined_df["window_start"])
+    Returns:
+        pd.DataFrame: DataFrame with additional parsed columns:
+            ['symbol', 'expiry_date', 'option_type', 'strike_price', 'expiration']
+    """
+    result = df.copy()
 
-combined_opt_df = pd.concat(list_of_opt_dfs, ignore_index=True)
-combined_opt_df.sort_values(by=["ticker", "window_start"], ascending=[True, False])
-combined_opt_df["window_start"] = pd.to_datetime(combined_opt_df["window_start"])
-# Remove the initial O: from the string
-combined_opt_df["ticker"] = combined_opt_df["ticker"].str.replace(
-    r"([O:])", "", regex=True
+    logger.info(f"Cleaning option names in column '{column_name}'")
+
+    # Extract fields with lenient pattern to allow malformed but recoverable entries
+    result[["symbol", "expiry_date", "option_type", "strike_price"]] = result[
+        column_name
+    ].str.extract(OCC_OPTION_NAME_PATTERN_LOOSE)
+
+    logger.info(f"Parsed {len(result)} option names")
+
+    # Drop rows that couldn't be parsed
+    result.dropna(
+        subset=["symbol", "expiry_date", "option_type", "strike_price"], inplace=True
+    )
+    if dropped_rows := len(df) - len(result):
+        logger.info(f"Dropped {dropped_rows} rows with unparseable option names")
+
+    # Normalize expiry_date: take last 6 digits (handles 7-digit errors like 2251219 -> 251219)
+    result["expiry_date"] = result["expiry_date"].str[-6:]
+
+    logger.info("Normalized expiry_date to last 6 digits")
+
+    # Normalize strike_price: pad to 8 digits, truncate if longer
+    result["strike_price"] = result["strike_price"].str.zfill(8).str[:8]
+    result["strike_price"] = result["strike_price"].astype(float) / 1000
+
+    logger.info("Normalized strike_price to 8 digits with 3 decimal places")
+
+    result["expiry_date"] = pd.to_datetime(
+        result["expiry_date"], format="%y%m%d", errors="coerce"
+    )
+
+    logger.info("Converted expiry_date to datetime")
+
+    result.dropna(subset=["expiry_date"], inplace=True)
+    if dropped_rows_due_to_date := len(df) - len(result):
+        logger.info(
+            f"Dropped {dropped_rows_due_to_date - dropped_rows} rows with unparseable option dates"
+        )
+
+    return result
+
+
+# Concatenate all stock DataFrames in the list into a single DataFrame
+combined_stock_df = pd.concat(
+    [pd.read_csv(file) for file in STOCK_DIR.glob("*.csv.gz")],
+    ignore_index=True,
 )
-# Extract the ticker name and store it in a temp spot
-combined_opt_df["temp"] = combined_opt_df["ticker"].str.extract(r"^([^\d]+)\d")
-# remove the ticker name from the string
-combined_opt_df["ticker"] = combined_opt_df["ticker"].str.replace(
-    r"^([^\d]+)", "", regex=True
+combined_stock_df.sort_values(by=["ticker", "window_start"], ascending=[True, False])
+combined_stock_df["window_start"] = pd.to_datetime(combined_stock_df["window_start"])
+
+# Combine all option DataFrames in the list into a single DataFrame
+combined_option_df = pd.concat(
+    [pd.read_csv(file) for file in OPTION_DIR.glob("*.csv.gz")],
+    ignore_index=True,
 )
-# Extract the strike date from the ticker
-combined_opt_df["strike_date"] = combined_opt_df["ticker"].str.extract(r"^(^\d+)\D")
-# Remove the strike date from the string
-combined_opt_df["ticker"] = combined_opt_df["ticker"].str.replace(
-    r"^(^\d+)", "", regex=True
-)
-# Remove the P (also could be a C)
-combined_opt_df["opt_type"] = combined_opt_df["ticker"].str.extract(r"([PC])")
-combined_opt_df["ticker"] = combined_opt_df["ticker"].str.replace(
-    r"([PC])", "", regex=True
-)
-# The remainder is the strike price
-combined_opt_df["strike_price"] = combined_opt_df["ticker"]
-# Move the ticker back into the ticker column
-combined_opt_df["ticker"] = combined_opt_df["temp"]
-combined_opt_df["strike_date"] = pd.to_datetime(
-    combined_opt_df["strike_date"], errors="coerce"
-)
-combined_opt_df = combined_opt_df.dropna(subset=["strike_date"])
-combined_opt_df["strike_price"] = combined_opt_df["strike_price"].astype(float) / 1000
-print(combined_opt_df)
+combined_option_df.sort_values(by=["ticker", "window_start"], ascending=[True, False])
+combined_option_df["window_start"] = pd.to_datetime(combined_option_df["window_start"])
+
+# Polygon has shitty looking data sometimes in terms of ticker structure, so we need to clean it up
+combined_option_df = clean_option_names(combined_option_df)
 
 # Go through the combined list of stocks to find the ones with the biggest weekly gains and losses.
 stock_watch = [
@@ -145,8 +171,8 @@ def calculate_winners_and_losers(
     return pd.concat([winners, losers], ignore_index=True)
 
 
-option = combined_opt_df[combined_opt_df["ticker"].isin(stock_watch)]
-stock = combined_df[combined_df["ticker"].isin(stock_watch)]
+option = combined_option_df[combined_option_df["ticker"].isin(stock_watch)]
+stock = combined_stock_df[combined_stock_df["ticker"].isin(stock_watch)]
 print(stock)
 combined_stk_opt = pd.merge(
     left=stock,
@@ -154,7 +180,7 @@ combined_stk_opt = pd.merge(
     how="right",
     on=["ticker", "window_start"],
 )
-winners_and_losers = calculate_winners_and_losers(combined_df, stock_watch)
+winners_and_losers = calculate_winners_and_losers(combined_stock_df, stock_watch)
 winners = winners_and_losers[winners_and_losers["type"] == "Winner"]
 losers = winners_and_losers[winners_and_losers["type"] == "Loser"]
 print(combined_stk_opt)
@@ -186,13 +212,13 @@ for ticker in stock_watch['ticker']:
 
 
 app.layout = html.Div(
-    style={"backgroundColor": colors["background"]},
+    style={"backgroundColor": COLOURS["background"]},
     children=[
         html.H1(
             children="Stock Selection",
             style={
                 "textAlign": "center",
-                "color": colors["text"],
+                "color": COLOURS["text"],
             },
         ),
         html.Div(
@@ -256,7 +282,7 @@ def update_output_div(input_value):
     Input(component_id="stk_dropdown", component_property="value"),
 )
 def update_hist_graph(input_value):
-    stock = combined_df[combined_df["ticker"] == f"{input_value}"]
+    stock = combined_stock_df[combined_stock_df["ticker"] == f"{input_value}"]
     stock.loc[:, "Log_return"] = np.log(stock.loc[:, "close"] / stock.loc[:, "open"])
     fig = px.histogram(stock["Log_return"], range_x=[-0.01, 0.01])
     return fig
@@ -304,7 +330,7 @@ def update_option_graph(input_value1, input_value2):
     Input(component_id="stk_dropdown", component_property="value"),
 )
 def update_range_graph(input_value):
-    stock = combined_df[combined_df["ticker"] == f"{input_value}"]
+    stock = combined_stock_df[combined_stock_df["ticker"] == f"{input_value}"]
     stock.loc[:, ("Log_return")] = np.log(
         stock.loc[:, ("close")] / stock.loc[:, ("open")]
     )
