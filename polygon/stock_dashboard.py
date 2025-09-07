@@ -273,9 +273,9 @@ def update_option_graph(input_value1, input_value2, input_value3):
     fig = go.Figure(
         data=[
             go.Surface(
-                z=pivot_interp.values,  # interpolated % changes
-                x=[str(t.date()) for t in pivot_interp.columns],  # time as strings
-                y=pivot_interp.index.tolist(),  # strike prices
+                z=pivot_interp.values,  # Interpolated % changes
+                x=pivot_interp.columns,  # Timestamps
+                y=pivot_interp.index.tolist(),  # Strike prices
                 colorscale="Viridis",
                 colorbar=dict(title="% Δ Ratio"),
                 hovertemplate="Time: %{x}<br>Strike: %{y}<br>% Δ: %{z:.2f}<extra></extra>",
