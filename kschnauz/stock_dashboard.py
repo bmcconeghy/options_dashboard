@@ -8,8 +8,13 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from dash import Dash, Input, Output, callback, dash_table, dcc, html
 
+import dash
+
+import dash_bootstrap_components as dbc
+from dash import callback, dcc, dash_table, html, Input, Output
+
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.CYBORG])
 
 pd.options.plotting.backend = "plotly"
 pd.set_option("display.max_columns", None)
@@ -17,8 +22,6 @@ pd.set_option("display.max_columns", None)
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
-
-app = Dash()
 
 # Body ------------------------------------
 COLOURS = {"background": "#000000", "text": "#7FDBFF"}
@@ -180,59 +183,101 @@ losers = winners_and_losers[winners_and_losers["type"] == "Loser"]
 # App layout will have the drop down list and all calls for graphs
 # Generate the drop down list of all unique ticker names and update all graphs when a new ticker is chosen
 
-
-app.layout = html.Div(
-    style={"backgroundColor": COLOURS["background"]},
-    children=[
-        html.H1(
-            children="Stock Selection",
-            style={
-                "textAlign": "center",
-                "color": COLOURS["text"],
-            },
-        ),
-        html.Div(
+app.layout = dbc.Container(
+    [
+        # Header
+        dbc.Row(
             [
-                dcc.Dropdown(
-                    id="stk_dropdown",
-                    options=[
-                        {"label": i, "value": i} for i in stock["ticker"].unique()
-                    ],
-                    placeholder="Select Stock Ticker...",
-                    value="NVDA",
+                dbc.Col(
+                    html.H1(
+                        "Stock Selection",
+                        className="text-center mb-4",
+                        style={"color": COLOURS["text"]},
+                    )
+                )
+            ]
+        ),
+        # Dropdown Row
+        dbc.Row(
+            [
+                dbc.Col(
+                    dcc.Dropdown(
+                        id="stk_dropdown",
+                        options=[
+                            {"label": i, "value": i} for i in stock["ticker"].unique()
+                        ],
+                        placeholder="Select Stock Ticker...",
+                        value="NVDA",
+                    ),
+                    width=3,
+                ),
+                dbc.Col(
+                    dcc.Dropdown(
+                        id="date_dropdown",
+                        options=[
+                            {"label": i, "value": i}
+                            for i in option["expiry_date"].unique()
+                        ],
+                        placeholder="Select Option Date...",
+                    ),
+                    width=3,
                 ),
             ],
-            style={"width": "300px", "background-color": "lightblue"},
-            # width: 10%,
+            className="mb-4",
         ),
-        html.Div(
+        # Output Div
+        dbc.Row([dbc.Col(html.Div(id="my-output"))]),
+        # Graphs: Topography + Histogram
+        dbc.Row(
             [
-                dcc.Dropdown(
-                    id="date_dropdown",
-                    options=[
-                        {"label": i, "value": i} for i in option["expiry_date"].unique()
-                    ],
-                    placeholder="Select Option Date...",
-                    # value="1",
+                dbc.Col(
+                    dcc.Graph(id="option_topography", style={"height": "600px"}),
+                    width=8,
+                ),
+                dbc.Col(
+                    dcc.Graph(id="histogram_graph", style={"height": "600px"}), width=4
                 ),
             ],
-            style={"width": "300px", "background-color": "lightblue"},
-            # width: 10%,
+            className="mb-4",
         ),
-        html.Br(),
-        html.Div(id="my-output"),
-        dcc.Graph(id="option_topography", style={"width": "800px", "height": "800px"}),
-        dcc.Graph(id="histogram_graph", style={"width": "500px", "height": "500px"}),
-        dcc.Graph(id="range_graph", style={"width": "1500px", "height": "500px"}),
-        dash_table.DataTable(
-            winners.to_dict("records"),
-            [{"name": i, "id": i} for i in winners.columns],
+        # Full-Width Range Graph
+        dbc.Row(
+            [
+                dbc.Col(
+                    dcc.Graph(id="range_graph", style={"height": "500px"}),
+                )
+            ],
+            className="mb-4",
         ),
-        dash_table.DataTable(
-            losers.to_dict("records"),
-            [{"name": i, "id": i} for i in losers.columns],
+        # Winners and Losers Tables
+        dbc.Row(
+            [
+                dbc.Col(
+                    dash_table.DataTable(
+                        data=winners.head(20).to_dict("records"),
+                        columns=[{"name": i, "id": i} for i in winners.columns],
+                        page_size=20,
+                        style_table={"overflowX": "auto"},
+                        style_cell={"textAlign": "left"},
+                    ),
+                    width=6,
+                ),
+                dbc.Col(
+                    dash_table.DataTable(
+                        data=losers.head(20).to_dict("records"),
+                        columns=[{"name": i, "id": i} for i in losers.columns],
+                        page_size=20,
+                        style_table={"overflowX": "auto"},
+                        style_cell={"textAlign": "left"},
+                    ),
+                    width=6,
+                ),
+            ],
+            className="mb-5",
         ),
     ],
+    fluid=True,
+    style={"backgroundColor": COLOURS["background"], "padding": "20px"},
 )
 
 
