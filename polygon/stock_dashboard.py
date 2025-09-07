@@ -121,8 +121,8 @@ app.layout = dbc.Container(
                     dcc.Dropdown(
                         id="option_type_dropdown",
                         options=[
-                            {"label": i, "value": i}
-                            for i in stock_and_option["option_type"].unique()
+                            {"label": "Put", "value": "P"},
+                            {"label": "Call", "value": "C"},
                         ],
                         placeholder="Select Option Type...",
                     ),
@@ -185,6 +185,18 @@ app.layout = dbc.Container(
     fluid=True,
     style={"backgroundColor": COLOURS["background"], "padding": "20px"},
 )
+
+
+@app.callback(
+    Output("expiry_date_dropdown", "options"),
+    Input("stock_name_dropdown", "value"),
+    prevent_initial_call=True,
+)
+def update_expiry_date_dropdown(value):
+    """Not all stocks have the same expiry dates, so we need to filter the expiry date dropdown based on the selected stock."""
+    return stock_and_option[stock_and_option["ticker_stock"] == value][
+        "expiry_date"
+    ].unique()
 
 
 @callback(
