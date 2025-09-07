@@ -129,6 +129,6 @@ dmypy.json
 .pyre/
 
 dev.env
-kschnauz/stock_csvs
-kschnauz/options_csvs
+polygon/stock_csvs
+polygon/options_csvs
 
