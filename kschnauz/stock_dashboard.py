@@ -33,7 +33,9 @@ TICKERS = pd.read_csv(f"{ROOT_DIR}/all_tickers.csv")
 OCC_OPTION_NAME_PATTERN_LOOSE = re.compile(r"^O:([A-Z]+)(\d{6,7})([CP])(\d{6,9})$")
 
 
-def clean_option_names(df: pd.DataFrame, column_name: str = "ticker") -> pd.DataFrame:
+def clean_and_parse_option_names(
+    df: pd.DataFrame, column_name: str = "ticker"
+) -> pd.DataFrame:
     """Clean and parse Options Clearing Corporation (OCC) style option names.
 
     Args:
@@ -46,14 +48,10 @@ def clean_option_names(df: pd.DataFrame, column_name: str = "ticker") -> pd.Data
     """
     result = df.copy()
 
-    logger.info(f"Cleaning option names in column '{column_name}'")
-
     # Extract fields with lenient pattern to allow malformed but recoverable entries
     result[["symbol", "expiry_date", "option_type", "strike_price"]] = result[
         column_name
     ].str.extract(OCC_OPTION_NAME_PATTERN_LOOSE)
-
-    logger.info(f"Parsed {len(result)} option names")
 
     # Drop rows that couldn't be parsed
     result.dropna(
@@ -65,19 +63,13 @@ def clean_option_names(df: pd.DataFrame, column_name: str = "ticker") -> pd.Data
     # Normalize expiry_date: take last 6 digits (handles 7-digit errors like 2251219 -> 251219)
     result["expiry_date"] = result["expiry_date"].str[-6:]
 
-    logger.info("Normalized expiry_date to last 6 digits")
-
     # Normalize strike_price: pad to 8 digits, truncate if longer
     result["strike_price"] = result["strike_price"].str.zfill(8).str[:8]
     result["strike_price"] = result["strike_price"].astype(float) / 1000
 
-    logger.info("Normalized strike_price to 8 digits with 3 decimal places")
-
     result["expiry_date"] = pd.to_datetime(
         result["expiry_date"], format="%y%m%d", errors="coerce"
     )
-
-    logger.info("Converted expiry_date to datetime")
 
     result.dropna(subset=["expiry_date"], inplace=True)
     if dropped_rows_due_to_date := len(df) - len(result):
@@ -105,7 +97,7 @@ combined_option_df.sort_values(by=["ticker", "window_start"], ascending=[True, F
 combined_option_df["window_start"] = pd.to_datetime(combined_option_df["window_start"])
 
 # Polygon has shitty looking data sometimes in terms of ticker structure, so we need to clean it up
-combined_option_df = clean_option_names(combined_option_df)
+combined_option_df = clean_and_parse_option_names(combined_option_df)
 
 # Go through the combined list of stocks to find the ones with the biggest weekly gains and losses.
 stock_watch = [
