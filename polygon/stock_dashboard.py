@@ -31,14 +31,22 @@ combined_stock_df = pd.concat(
     [pd.read_csv(file) for file in STOCK_DIR.glob("*.csv.gz")],
     ignore_index=True,
 )
-combined_stock_df["window_start"] = pd.to_datetime(combined_stock_df["window_start"])
+combined_stock_df["window_start"] = (
+    pd.to_datetime(combined_stock_df["window_start"])
+    .dt.tz_localize("UTC")
+    .dt.tz_convert("America/New_York")
+)
 
 # Combine all option data
 combined_option_df = pd.concat(
     [pd.read_csv(file) for file in OPTION_DIR.glob("*.csv.gz")],
     ignore_index=True,
 )
-combined_option_df["window_start"] = pd.to_datetime(combined_option_df["window_start"])
+combined_option_df["window_start"] = (
+    pd.to_datetime(combined_option_df["window_start"])
+    .dt.tz_localize("UTC")
+    .dt.tz_convert("America/New_York")
+)
 
 # Polygon has shitty looking data sometimes in terms of ticker structure, so we need to clean it up
 combined_option_df = clean_and_parse_option_names(combined_option_df)
