@@ -285,9 +285,7 @@ def update_option_graph(stock_name, expiry_date, option_type):
     # Interpolate across strike
     pivot_interp = pivot_interp.interpolate(axis=0, method="linear")
     # Edge fill
-    pivot_interp = pivot_interp.fillna(method="bfill", axis=1).fillna(
-        method="ffill", axis=1
-    )
+    pivot_interp = pivot_interp.bfill(axis=1).ffill(axis=1)
 
     fig = go.Figure(
         data=[
