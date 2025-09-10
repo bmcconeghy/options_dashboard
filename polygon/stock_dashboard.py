@@ -31,7 +31,7 @@ combined_stock_df = combined_stock_df.with_columns(
     .cast(pl.Datetime("ns"))
     .dt.replace_time_zone("UTC")
     .dt.convert_time_zone("America/New_York")
-)
+).sort("window_start")
 # Combine all option data
 combined_option_df = pl.concat(
     [pl.read_csv(file) for file in OPTION_DIR.glob("*.csv.gz")]
