@@ -10,7 +10,6 @@ import plotly.graph_objects as go
 import structlog
 from dash import Input, Output, callback, dash_table, dcc, html
 from munge import calculate_winners_and_losers, clean_and_parse_option_names
-from scipy.interpolate import griddata
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.CYBORG])
 
@@ -118,10 +117,6 @@ app.layout = dbc.Container(
                 dbc.Col(
                     dcc.Dropdown(
                         id="expiry_date_dropdown",
-                        options=[
-                            {"label": i, "value": i}
-                            for i in stock_and_option["expiry_date"].unique()
-                        ],
                         placeholder="Select Option Date...",
                     ),
                     width=3,
@@ -134,6 +129,7 @@ app.layout = dbc.Container(
                             {"label": "Call", "value": "C"},
                         ],
                         placeholder="Select Option Type...",
+                        value="P",
                     ),
                     width=3,
                 ),
@@ -198,14 +194,19 @@ app.layout = dbc.Container(
 
 @app.callback(
     Output("expiry_date_dropdown", "options"),
+    Output("expiry_date_dropdown", "value"),  # Allows setting a default value
     Input("stock_name_dropdown", "value"),
-    prevent_initial_call=True,
 )
 def update_expiry_date_dropdown(value):
     """Not all stocks have the same expiry dates, so we need to filter the expiry date dropdown based on the selected stock."""
-    return stock_and_option[stock_and_option["ticker_stock"] == value][
-        "expiry_date"
-    ].unique()
+    unique_expiry_dates = sorted(
+        stock_and_option[stock_and_option["ticker_stock"] == value][
+            "expiry_date"
+        ].unique()
+    )
+    return [
+        {"label": item, "value": item} for item in unique_expiry_dates
+    ], unique_expiry_dates[0]  # Set the first date as the default value
 
 
 @callback(
