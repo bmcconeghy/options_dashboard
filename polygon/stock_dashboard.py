@@ -4,17 +4,14 @@ from pathlib import Path
 import dash
 import dash_bootstrap_components as dbc
 import numpy as np
-import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import polars as pl
 import structlog
 from dash import Input, Output, callback, dash_table, dcc, html
 from munge import calculate_winners_and_losers, clean_and_parse_option_names
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.CYBORG])
-
-pd.options.plotting.backend = "plotly"
-pd.set_option("display.max_columns", None)
 
 logger = structlog.get_logger()
 
@@ -26,27 +23,25 @@ OPTION_DIR = ROOT_DIR / "polygon/options_csvs"
 
 
 # Combine all stock data
-combined_stock_df = pd.concat(
-    [pd.read_csv(file) for file in STOCK_DIR.glob("*.csv.gz")],
-    ignore_index=True,
+combined_stock_df = pl.concat(
+    [pl.read_csv(file) for file in STOCK_DIR.glob("*.csv.gz")]
 )
-combined_stock_df["window_start"] = (
-    pd.to_datetime(combined_stock_df["window_start"])
-    .dt.tz_localize("UTC")
-    .dt.tz_convert("America/New_York")
+combined_stock_df = combined_stock_df.with_columns(
+    pl.col("window_start")
+    .cast(pl.Datetime("ns"))
+    .dt.replace_time_zone("UTC")
+    .dt.convert_time_zone("America/New_York")
 )
-
 # Combine all option data
-combined_option_df = pd.concat(
-    [pd.read_csv(file) for file in OPTION_DIR.glob("*.csv.gz")],
-    ignore_index=True,
+combined_option_df = pl.concat(
+    [pl.read_csv(file) for file in OPTION_DIR.glob("*.csv.gz")]
 )
-combined_option_df["window_start"] = (
-    pd.to_datetime(combined_option_df["window_start"])
-    .dt.tz_localize("UTC")
-    .dt.tz_convert("America/New_York")
+combined_option_df = combined_option_df.with_columns(
+    pl.col("window_start")
+    .cast(pl.Datetime("ns"))
+    .dt.replace_time_zone("UTC")
+    .dt.convert_time_zone("America/New_York")
 )
-
 # Polygon has shitty looking data sometimes in terms of ticker structure, so we need to clean it up
 combined_option_df = clean_and_parse_option_names(combined_option_df)
 
@@ -64,22 +59,24 @@ stock_watch = [
     "TSLA",
 ]
 
-stock_and_option = pd.merge_asof(
-    left=combined_option_df[combined_option_df["symbol"].isin(stock_watch)].sort_values(
-        by=["window_start", "symbol"]
-    ),
-    right=combined_stock_df[combined_stock_df["ticker"].isin(stock_watch)].sort_values(
-        by=["window_start", "ticker"]
-    ),
-    on=["window_start"],
-    left_by=["symbol"],
-    right_by=["ticker"],
-    suffixes=("_option", "_stock"),
-    direction="nearest",
+stock_and_option = (
+    combined_option_df.filter(pl.col("symbol").is_in(stock_watch))
+    .sort(["window_start", "symbol"])
+    .join_asof(
+        combined_stock_df.filter(pl.col("ticker").is_in(stock_watch)).sort(
+            ["window_start", "ticker"]
+        ),
+        left_on="window_start",
+        right_on="window_start",
+        by_left="symbol",
+        by_right="ticker",
+        suffix="_stock",
+        strategy="nearest",
+    )
 )
 winners_and_losers = calculate_winners_and_losers(combined_stock_df, stock_watch)
-winners = winners_and_losers[winners_and_losers["type"] == "Winner"]
-losers = winners_and_losers[winners_and_losers["type"] == "Loser"]
+winners = winners_and_losers.filter(pl.col("type") == "Winner")
+losers = winners_and_losers.filter(pl.col("type") == "Loser")
 
 
 # App layout will have the drop down list and all calls for graphs
@@ -92,7 +89,7 @@ app.layout = dbc.Container(
             [
                 dbc.Col(
                     html.H1(
-                        "Stock Selection",
+                        "Stock Exploration Dashboard",
                         className="text-center mb-4",
                         style={"color": COLOURS["text"]},
                     )
@@ -107,19 +104,22 @@ app.layout = dbc.Container(
                         id="stock_name_dropdown",
                         options=[
                             {"label": i, "value": i}
-                            for i in stock_and_option["ticker_stock"].unique()
+                            for i in stock_and_option.select("symbol")
+                            .unique()
+                            .to_series()
+                            .to_list()
                         ],
                         placeholder="Select Stock Ticker...",
                         value="NVDA",
                     ),
-                    width=3,
+                    width=2,
                 ),
                 dbc.Col(
                     dcc.Dropdown(
                         id="expiry_date_dropdown",
                         placeholder="Select Option Date...",
                     ),
-                    width=3,
+                    width=2,
                 ),
                 dbc.Col(
                     dcc.Dropdown(
@@ -131,7 +131,7 @@ app.layout = dbc.Container(
                         placeholder="Select Option Type...",
                         value="P",
                     ),
-                    width=3,
+                    width=2,
                 ),
             ],
             className="mb-4",
@@ -165,7 +165,7 @@ app.layout = dbc.Container(
             [
                 dbc.Col(
                     dash_table.DataTable(
-                        data=winners.head(20).to_dict("records"),
+                        data=winners.head(20).to_dicts(),
                         columns=[{"name": i, "id": i} for i in winners.columns],
                         page_size=20,
                         style_table={"overflowX": "auto"},
@@ -175,7 +175,7 @@ app.layout = dbc.Container(
                 ),
                 dbc.Col(
                     dash_table.DataTable(
-                        data=losers.head(20).to_dict("records"),
+                        data=losers.head(20).to_dicts(),
                         columns=[{"name": i, "id": i} for i in losers.columns],
                         page_size=20,
                         style_table={"overflowX": "auto"},
@@ -200,9 +200,11 @@ app.layout = dbc.Container(
 def update_expiry_date_dropdown(value):
     """Not all stocks have the same expiry dates, so we need to filter the expiry date dropdown based on the selected stock."""
     unique_expiry_dates = sorted(
-        stock_and_option[stock_and_option["ticker_stock"] == value][
-            "expiry_date"
-        ].unique()
+        stock_and_option.filter(pl.col("symbol") == value)
+        .select("expiry_date")
+        .unique()
+        .to_series()
+        .to_list()
     )
     return [
         {"label": item, "value": item} for item in unique_expiry_dates
@@ -225,9 +227,20 @@ def update_output_div(input_value):
     Input(component_id="stock_name_dropdown", component_property="value"),
 )
 def update_hist_graph(input_value):
-    stock = combined_stock_df[combined_stock_df["ticker"] == f"{input_value}"]
-    stock.loc[:, "Log_return"] = np.log(stock.loc[:, "close"] / stock.loc[:, "open"])
-    fig = px.histogram(stock["Log_return"], range_x=[-0.01, 0.01])
+    stock = combined_stock_df.filter(pl.col("ticker") == input_value)
+    stock = stock.with_columns(
+        (pl.col("close") / pl.col("open")).log().alias("Log_return")
+    ).to_pandas()
+    fig = px.histogram(stock, x="Log_return", range_x=[-0.01, 0.01])
+    fig.update_layout(
+        title="Histogram of Daily Log Returns",
+        xaxis_title="Log Return",
+        yaxis_title="Count",
+        bargap=0.1,
+        plot_bgcolor=COLOURS["background"],
+        paper_bgcolor=COLOURS["background"],
+        font_color=COLOURS["text"],
+    )
     return fig
 
 
@@ -236,22 +249,19 @@ def update_hist_graph(input_value):
     Input(component_id="stock_name_dropdown", component_property="value"),
     Input(component_id="expiry_date_dropdown", component_property="value"),
     Input(component_id="option_type_dropdown", component_property="value"),
-    prevent_initial_call=True,
 )
-def update_option_graph(input_value1, input_value2, input_value3):
-    logger.debug(f"{input_value1=}")
-    logger.debug(f"{input_value2=}")
-    logger.debug(f"{input_value3=}")
+def update_option_graph(stock_name, expiry_date, option_type):
     # TODO: Is a scatter 3d plot better here?
-    # TODO: Smooth out NaNs?
 
-    stock_and_option_for_specific_stock = stock_and_option.query(
-        "ticker_stock == @input_value1 & expiry_date == @input_value2 & option_type == @input_value3"
-    )
+    stock_and_option_for_specific_stock = stock_and_option.filter(
+        (pl.col("symbol") == stock_name)
+        & (pl.col("expiry_date").cast(str) == expiry_date)
+        & (pl.col("option_type") == option_type)
+    ).to_pandas()
 
     stock_and_option_for_specific_stock = stock_and_option_for_specific_stock.copy()
     stock_and_option_for_specific_stock["premium_to_stock_ratio"] = (
-        stock_and_option_for_specific_stock["open_option"]
+        stock_and_option_for_specific_stock["open"]
         / stock_and_option_for_specific_stock["open_stock"]
     )
 
@@ -289,7 +299,12 @@ def update_option_graph(input_value1, input_value2, input_value3):
                 colorbar=dict(title="% Δ Ratio"),
                 hovertemplate="Time: %{x}<br>Strike: %{y}<br>% Δ: %{z:.2f}<extra></extra>",
             )
-        ]
+        ],
+    )
+    fig.update_layout(
+        plot_bgcolor=COLOURS["background"],
+        paper_bgcolor=COLOURS["background"],
+        font_color=COLOURS["text"],
     )
 
     fig.update_layout(
@@ -310,39 +325,65 @@ def update_option_graph(input_value1, input_value2, input_value3):
     Input(component_id="stock_name_dropdown", component_property="value"),
 )
 def update_range_graph(input_value):
-    stock = combined_stock_df[combined_stock_df["ticker"] == f"{input_value}"]
-    stock.loc[:, ("Log_return")] = np.log(
-        stock.loc[:, ("close")] / stock.loc[:, ("open")]
+    stock = combined_stock_df.filter(pl.col("ticker") == input_value)
+    stock = stock.with_columns(
+        (pl.col("close") / pl.col("open")).log().alias("Log_return")
     )
-    mean = np.mean(stock.loc[:, "Log_return"])
-    vol = np.std(stock.loc[:, "Log_return"])
-    # mean_annual_log=252*mean
-    # vol_annual_log=252**0.5*vol
-    # mean_annual_effective=np.exp(mean_annual_log)-1
-    # vol_annual_effective=np.exp(vol_annual_log)-1
-    SAP = np.average(stock["close"])
-    stock["price_dif"] = np.square(stock.loc[:, ("close")] - SAP)
-    Dif_Sum = np.sum(stock.loc[:, ("price_dif")])
-    Varience = Dif_Sum / (len(stock["price_dif"] - 1))
-    SV = np.sqrt(Varience)
+    mean = stock["Log_return"].mean()
+    vol = stock["Log_return"].std()
     mean_daily_effective = np.exp(mean) - 1
     vol_daily_effective = np.exp(vol) - 1
-    first_price = stock.close.iloc[0]
-    stock["high"] = first_price * np.array(
-        [
-            ((1 + mean_daily_effective) ** i)
-            * ((1 + vol_daily_effective) ** np.sqrt(i))
-            for i in range(len(stock))
-        ]
+    first_price = stock["close"][0]
+    n = stock.height
+    high = [
+        first_price
+        * ((1 + mean_daily_effective) ** i)
+        * ((1 + vol_daily_effective) ** np.sqrt(i))
+        for i in range(n)
+    ]
+    low = [
+        first_price
+        * ((1 + mean_daily_effective) ** i)
+        / ((1 + vol_daily_effective) ** np.sqrt(i))
+        for i in range(n)
+    ]
+    df = stock.with_columns(
+        [pl.Series("high", high), pl.Series("low", low)]
+    ).to_pandas()
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=df["window_start"].to_list(),
+            y=df["close"].to_list(),
+            mode="lines",
+            name="Close",
+        )
     )
-    stock["low"] = first_price * np.array(
-        [
-            ((1 + mean_daily_effective) ** i)
-            / ((1 + vol_daily_effective) ** np.sqrt(i))
-            for i in range(len(stock))
-        ]
+    fig.add_trace(
+        go.Scatter(
+            x=df["window_start"].to_list(),
+            y=df["high"].to_list(),
+            mode="lines",
+            name="High",
+        )
     )
-    fig = stock.plot(x="window_start", y=["close", "high", "low"], log_y=True)
+    fig.add_trace(
+        go.Scatter(
+            x=df["window_start"].to_list(),
+            y=df["low"].to_list(),
+            mode="lines",
+            name="Low",
+        )
+    )
+    fig.update_layout(
+        title="Stock Price Range Projection",
+        yaxis_type="log",
+        xaxis_title="Date",
+        yaxis_title="Price",
+        plot_bgcolor=COLOURS["background"],
+        paper_bgcolor=COLOURS["background"],
+        font_color=COLOURS["text"],
+    )
     return fig
 
 
