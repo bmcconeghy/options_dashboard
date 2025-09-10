@@ -5,6 +5,7 @@ channels:
 dependencies:
   - _libgcc_mutex=0.1=conda_forge
   - _openmp_mutex=4.5=2_gnu
+  - _python_abi3_support=1.0=hd8ed1ab_2
   - anyio=4.9.0=pyh29332c3_0
   - appdirs=1.4.4=pyhd8ed1ab_1
   - asttokens=3.0.0=pyhd8ed1ab_1
@@ -27,6 +28,7 @@ dependencies:
   - colorcet=3.1.0=pyhd8ed1ab_1
   - comm=0.2.2=pyhd8ed1ab_1
   - contourpy=1.3.1=py313h33d0bda_0
+  - cpython=3.13.7=py313hd8ed1ab_100
   - curl-cffi=0.11.4=py313h1666225_0
   - cycler=0.12.1=pyhd8ed1ab_1
   - dash=3.2.0=pyhd8ed1ab_0
@@ -129,6 +131,8 @@ dependencies:
   - platformdirs=4.3.7=pyh29332c3_0
   - plotly=6.0.1=pyhd8ed1ab_0
   - plotly_express=0.4.1=py_0
+  - polars=1.33.1=default_h755bcc6_0
+  - polars-default=1.33.1=py39hf521cc8_0
   - prompt-toolkit=3.0.50=pyha770c72_0
   - protobuf=5.29.3=py313h386a9ef_0
   - psutil=7.0.0=py313h536fd9c_0
@@ -141,6 +145,7 @@ dependencies:
   - pysocks=1.7.1=pyha55dd90_7
   - python=3.13.3=hf636f53_100_cp313
   - python-dateutil=2.9.0.post0=pyhff2d567_1
+  - python-gil=3.13.7=h4df99d1_100
   - python-tzdata=2025.2=pyhd8ed1ab_0
   - python_abi=3.13=6_cp313
   - pytz=2025.2=pyhd8ed1ab_0
