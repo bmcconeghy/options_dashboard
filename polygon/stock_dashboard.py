@@ -9,6 +9,7 @@ import plotly.graph_objects as go
 import polars as pl
 import structlog
 from dash import Input, Output, callback, dash_table, dcc, html
+from fetch import download_file_from_s3, get_newest_flat_files_for_prefix
 from munge import calculate_winners_and_losers, clean_and_parse_option_names
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.CYBORG])
@@ -21,6 +22,31 @@ ROOT_DIR = Path(os.environ.get("ROOT_DIR"))
 STOCK_DIR = ROOT_DIR / "polygon/stock_csvs"
 OPTION_DIR = ROOT_DIR / "polygon/options_csvs"
 
+STOCK_DIR.mkdir(parents=True, exist_ok=True)
+OPTION_DIR.mkdir(parents=True, exist_ok=True)
+# Number of most recent days to fetch from Polygon's S3 storage
+NUM_DAYS_TO_FETCH = 1
+
+most_recent_stock_data = get_newest_flat_files_for_prefix(
+    base_prefix="us_stocks_sip", level="minute_aggs_v1"
+)[:NUM_DAYS_TO_FETCH]
+
+most_recent_option_data = get_newest_flat_files_for_prefix(
+    base_prefix="us_options_opra", level="minute_aggs_v1"
+)[:NUM_DAYS_TO_FETCH]
+
+for stock_data in most_recent_stock_data:
+    if not Path(stock_data.split("/")[-1]).exists():
+        download_file_from_s3(
+            object_key=stock_data,
+            root_dir=STOCK_DIR,
+        )
+for options_data in most_recent_option_data:
+    if not Path(options_data.split("/")[-1]).exists():
+        download_file_from_s3(
+            object_key=options_data,
+            root_dir=OPTION_DIR,
+        )
 
 # Combine all stock data
 combined_stock_df = pl.concat(
