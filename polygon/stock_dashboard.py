@@ -19,30 +19,31 @@ logger = structlog.get_logger()
 
 COLOURS = {"background": "#000000", "text": "#7FDBFF"}
 ROOT_DIR = Path(os.environ.get("ROOT_DIR"))
-STOCK_DIR = ROOT_DIR / "polygon/stock_csvs"
+STOCK_DIR = ROOT_DIR / "polygon/stocks_csvs"
 OPTION_DIR = ROOT_DIR / "polygon/options_csvs"
 
 STOCK_DIR.mkdir(parents=True, exist_ok=True)
 OPTION_DIR.mkdir(parents=True, exist_ok=True)
+
 # Number of most recent days to fetch from Polygon's S3 storage
-NUM_DAYS_TO_FETCH = 1
+NUM_DAYS_TO_FETCH = 2
 
 most_recent_stock_data = get_newest_flat_files_for_prefix(
-    base_prefix="us_stocks_sip", level="minute_aggs_v1"
-)[:NUM_DAYS_TO_FETCH]
+    base_prefix="us_stocks_sip", level="minute_aggs_v1", num_files=NUM_DAYS_TO_FETCH
+)
 
 most_recent_option_data = get_newest_flat_files_for_prefix(
-    base_prefix="us_options_opra", level="minute_aggs_v1"
-)[:NUM_DAYS_TO_FETCH]
+    base_prefix="us_options_opra", level="minute_aggs_v1", num_files=NUM_DAYS_TO_FETCH
+)
 
 for stock_data in most_recent_stock_data:
-    if not Path(stock_data.split("/")[-1]).exists():
+    if not (STOCK_DIR / Path(stock_data.split("/")[-1])).exists():
         download_file_from_s3(
             object_key=stock_data,
             root_dir=STOCK_DIR,
         )
 for options_data in most_recent_option_data:
-    if not Path(options_data.split("/")[-1]).exists():
+    if not (OPTION_DIR / Path(options_data.split("/")[-1])).exists():
         download_file_from_s3(
             object_key=options_data,
             root_dir=OPTION_DIR,
@@ -411,5 +412,9 @@ def update_range_graph(input_value):
     return fig
 
 
+def main():
+    app.run(debug=True, host="0.0.0.0", port=8050)
+
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    main()
