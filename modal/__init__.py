@@ -2,10 +2,7 @@ from pathlib import Path
 
 import modal
 
-app = modal.App("dash-app-test")
-
-dashboard_local_path = Path(__file__).parent.parent / "polygon/stock_dashboard.py"
-dashboard_remote_path = "/root/stock_dashboard.py"
+app = modal.App("options-dashboard")
 
 munge_local_path = Path(__file__).parent.parent / "polygon/munge.py"
 munge_remote_path = "/root/munge.py"
@@ -13,7 +10,10 @@ munge_remote_path = "/root/munge.py"
 fetch_local_path = Path(__file__).parent.parent / "polygon/fetch.py"
 fetch_remote_path = "/root/fetch.py"
 
-web_app_image = (
+dashboard_local_path = Path(__file__).parent.parent / "polygon/app.py"
+dashboard_remote_path = "/root/app.py"
+
+panel_web_app_image = (
     modal.Image.debian_slim(python_version="3.13")
     .pip_install(
         "boto3",
@@ -22,6 +22,7 @@ web_app_image = (
         "dash-bootstrap-components",
         "numpy",
         "pandas",
+        "panel",
         "pyarrow",
         "polars",
         "plotly",
@@ -44,7 +45,7 @@ web_app_image = (
 
 
 @app.function(
-    image=web_app_image,
+    image=panel_web_app_image,
     max_containers=1,
     secrets=[modal.Secret.from_name("polygon"), modal.Secret.from_name("dirs")],
     volumes={
@@ -54,12 +55,22 @@ web_app_image = (
     startup_timeout=20,
 )
 @modal.concurrent(max_inputs=2)
-@modal.web_server(8050)
-def ui():
+@modal.web_server(8000)
+def panel_ui():
     import subprocess
 
     subprocess.Popen(
-        ["python", dashboard_remote_path],
+        [
+            "panel",
+            "serve",
+            "--port",
+            "8000",
+            "--address",
+            "0.0.0.0",
+            "--allow-websocket-origin",
+            "*",
+            dashboard_remote_path,
+        ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
