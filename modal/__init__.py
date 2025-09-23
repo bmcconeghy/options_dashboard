@@ -2,7 +2,7 @@ from pathlib import Path
 
 import modal
 
-app = modal.App("options-dashboard")
+app = modal.App("options")
 
 munge_local_path = Path(__file__).parent.parent / "polygon/munge.py"
 munge_remote_path = "/root/munge.py"
@@ -56,7 +56,7 @@ panel_web_app_image = (
 )
 @modal.concurrent(max_inputs=2)
 @modal.web_server(8000)
-def panel_ui():
+def dashboard():  # Naming it this way so the URL is cleaner
     import subprocess
 
     subprocess.Popen(
