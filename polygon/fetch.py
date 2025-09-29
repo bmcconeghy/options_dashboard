@@ -74,10 +74,11 @@ def download_file_from_s3(
     bucket_name: str = BUCKET_NAME,
     root_dir: str = ROOT_DIR,
     s3_client=None,
-) -> None:
+) -> Path:
     """Download a file from S3 to a local directory."""
     if s3_client is None:
         s3_client = get_s3_client()
     local_file_name = object_key.split("/")[-1]
     local_file_path = root_dir / local_file_name
     s3_client.download_file(bucket_name, object_key, local_file_path)
+    return local_file_path

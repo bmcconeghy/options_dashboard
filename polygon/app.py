@@ -33,22 +33,29 @@ most_recent_option_data = get_newest_flat_files_for_prefix(
     base_prefix="us_options_opra", level="minute_aggs_v1", num_files=NUM_DAYS_TO_FETCH
 )
 
+
+combined_stock_dfs = []
 for stock_data in most_recent_stock_data:
-    if not (STOCK_DIR / Path(stock_data.split("/")[-1])).exists():
-        download_file_from_s3(
+    local_path = STOCK_DIR / stock_data.split("/")[-1]
+    if not local_path.exists():
+        local_path = download_file_from_s3(
             object_key=stock_data,
             root_dir=STOCK_DIR,
         )
+    combined_stock_dfs.append(pl.read_csv(local_path))
+
+combined_option_dfs = []
 for options_data in most_recent_option_data:
-    if not (OPTION_DIR / Path(options_data.split("/")[-1])).exists():
+    local_path = OPTION_DIR / options_data.split("/")[-1]
+    if not local_path.exists():
         download_file_from_s3(
             object_key=options_data,
             root_dir=OPTION_DIR,
         )
+    combined_option_dfs.append(pl.read_csv(local_path))
 
-combined_stock_df = pl.concat(
-    [pl.read_csv(file) for file in STOCK_DIR.glob("*.csv.gz")]
-)
+
+combined_stock_df = pl.concat(combined_stock_dfs)
 combined_stock_df = combined_stock_df.with_columns(
     pl.col("window_start")
     .cast(pl.Datetime("ns"))
@@ -56,9 +63,7 @@ combined_stock_df = combined_stock_df.with_columns(
     .dt.convert_time_zone("America/New_York")
 ).sort("window_start")
 
-combined_option_df = pl.concat(
-    [pl.read_csv(file) for file in OPTION_DIR.glob("*.csv.gz")]
-)
+combined_option_df = pl.concat(combined_option_dfs)
 combined_option_df = combined_option_df.with_columns(
     pl.col("window_start")
     .cast(pl.Datetime("ns"))
@@ -127,12 +132,12 @@ expiry_date_dropdown = pn.widgets.Select(
 )
 
 
-def get_histogram_figure(stock_name):
+def get_histogram_figure(stock_name: str):
     stock = combined_stock_df.filter(pl.col("ticker") == stock_name)
     stock = stock.with_columns(
-        (pl.col("close") / pl.col("open")).log().alias("Log_return")
+        (pl.col("close") / pl.col("open")).log().alias("log_return")
     )
-    fig = px.histogram(stock["Log_return"].to_numpy(), range_x=[-0.01, 0.01])
+    fig = px.histogram(stock["log_return"].to_numpy(), range_x=[-0.01, 0.01])
     fig.update_layout(
         title="Histogram of Daily Log Returns",
         xaxis_title="Log Return",
@@ -210,10 +215,10 @@ def get_option_topography_figure(stock_name: str, expiry_date, option_type: str)
 def get_range_graph_figure(stock_name: str):
     stock = combined_stock_df.filter(pl.col("ticker") == stock_name)
     stock = stock.with_columns(
-        (pl.col("close") / pl.col("open")).log().alias("Log_return")
+        (pl.col("close") / pl.col("open")).log().alias("log_return")
     )
-    mean = stock["Log_return"].mean()
-    vol = stock["Log_return"].std()
+    mean = stock["log_return"].mean()
+    vol = stock["log_return"].std()
     mean_daily_effective = np.exp(mean) - 1
     vol_daily_effective = np.exp(vol) - 1
     first_price = stock["close"][0]
