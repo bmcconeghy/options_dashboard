@@ -304,12 +304,17 @@ range_graph_pane = pn.bind(
     get_range_graph_figure, stock_name=stock_name_dropdown.param.value
 )
 
+gold_sidebar = pn.pane.PNG("https://goldprice.org/charts/gold_1d_o_USD_z.png")
+silver_sidebar = pn.pane.PNG("https://goldprice.org/charts/silver_1d_o_USD_z.png")
+
 dashboard = pn.template.MaterialTemplate(
     title="Stock Exploration Dashboard",
     sidebar=[
         stock_name_dropdown,
         expiry_date_dropdown,
         option_type_dropdown,
+        gold_sidebar,
+        silver_sidebar,
     ],
     main=pn.Tabs(
         ("Option Topography", option_topography_pane),
