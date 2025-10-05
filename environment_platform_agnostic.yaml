@@ -1,0 +1,30 @@
+name: options
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - python
+  - yfinance==0.2.65
+  - ipykernel
+  - panel
+  - watchfiles
+  - plotly_express
+  - hvplot
+  - jupyter_bokeh
+  - dash
+  - boto3
+  - dash-bootstrap-components
+  - structlog
+  - scipy
+  - polars
+  - pyarrow
+  - polygon-api-client
+  - rich
+  - modal-client
+  - httpx
+  - pytorch
+  - transformers
+  - statsmodels
+  - toolz
+prefix: /home/bmcconeghy/miniconda3/envs/options
