@@ -5,7 +5,6 @@ channels:
   - defaults
 dependencies:
   - python
-  - yfinance==0.2.65
   - ipykernel
   - panel
   - watchfiles
@@ -27,4 +26,6 @@ dependencies:
   - transformers
   - statsmodels
   - toolz
+  - pip:
+    - yfinance==0.2.65
 prefix: /home/bmcconeghy/miniconda3/envs/options
